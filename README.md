@@ -3,7 +3,7 @@ PoC using vetiver as an MLOps solution
 
 This repo is a toy experiment on setting up an MLOps solution using only the R ecosystem and the `vetiver` package.
 
-To know more about it, refer to the series of articles starting here LINK
+To know more about it, refer to the series of articles starting [here](https://medium.com/@adrian.joseph/build-an-end-to-end-mlops-solution-with-vetiver-for-r-and-python-part-1-46f1c56e684).
 
 # Usage
 
