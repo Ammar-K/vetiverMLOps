@@ -42,3 +42,9 @@ vignettes/*.pdf
 # Rendered markdown
 *.html
 model_dev/model_card/*.html
+
+# Copied tmp files
+model_deployment/model_dev/
+
+# Logs
+logs/

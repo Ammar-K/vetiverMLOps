@@ -12,15 +12,17 @@ To run everything locally, without any real deployment:
 **Set up**
 
 * `renv::restore()`
-* From the Terminal execute `bash ./startAPI.bash` (Mac OS)
+* From the Terminal execute `bash ./auxScripts/startAPI.bash` (Mac OS)
 
 **Build the model**
 
-* Source the file `./model_dev/R/model_dev.R`
+* `source(here::here('model_dev', 'R', 'model_dev.R'))`
 
 **Deploy the model**
 
 * Knit the R Markdown `./model_deployment/deployment.Rmd`
+
+### Coming soon
 
 **Create some log files**
 

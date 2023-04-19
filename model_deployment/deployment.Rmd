@@ -1,0 +1,319 @@
+---
+title: "Flights model deployment"
+date: '`r Sys.Date()`'
+output: 
+  html_document
+params:
+    board: !r pins::board_local()
+    model_name: flights_fit
+    test_data_name: test_data
+    train_data_name: train_data
+    minAcceptableAccuracy: 0.8
+---
+# Set up
+While exploring this toy model, we do not actually deploy to rsconnect. To run this document locally, firs run from the termial `bash ./auxScripts/startAPI.bash`. This was tested om a Mac, you might need to change the bash syntax in Unix or Windows.
+
+# Aim
+This is a bare bone example of a deployment script of an R model to a plumber API.
+
+# Steps
+
+* Get the code
+* Check for correct file structure
+* Install dependencies
+* Build model
+* Deploy as API
+* Test
+
+Each step creates logs and if there is any failure the document does not knit, i.e., there will be no deployment.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(log4r)
+library(pins)
+
+# create a log4r logging object that logs in the format
+# LEVEL [YYYY-MM-DD HH:MM:SS] [ID] <message>
+
+Sys.setenv('deploymentID' = sample(seq(1,1e6), 1))
+my_layout <- function(level, ...) {
+  paste0(level, " [", format(Sys.time()), "] [", Sys.getenv('deploymentID'), "] "
+         , ..., "\n", collapse = "")
+}
+
+logger <- create.logger(logfile = here::here('logs',
+                                             'deployment',
+                                             paste0(Sys.Date(), "_logfile.log")),
+                        level = "DEBUG")
+
+logger <- logger(appenders = file_appender(file = here::here('logs',
+                                                             'deployment',
+                                                             paste0(Sys.Date(), "_logfile.log")),
+                                           layout = my_layout))
+```
+
+This deployment ID: `r Sys.getenv('deploymentID')` (can be used to explore the logs)
+
+# Get the code
+
+In real life you will be cloning the repo. In this toy example everything is contained wothin the same repo, so we mock a clone by copying the model_dev folder from locatio to another.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# this just mock cloning the repo with the model code
+library('here')
+info(logger, 'Start new deployment')
+if(dir.exists(here::here('model_deployment', 'model_dev'))){
+  unlink(here::here('model_deployment', 'model_dev'), recursive = TRUE, force = TRUE)
+}
+file.copy(from = here::here('model_dev'),
+          to = here::here('model_deployment'),
+          overwrite = TRUE,
+          recursive = TRUE)
+
+# just for reproducibility, I nuke my local board here
+allPins <- params$board %>% pins::pin_list()
+for(thisPin in allPins){
+  params$board %>% pins::pin_delete(thisPin)
+}
+# and I recreate the basic data
+source(here::here('auxScripts', 'prepare_raw_data.R'))
+info(logger, 'Repo cloned')
+```
+
+# Check for project strucutre
+
+Run some simple checks to make sure that we have the files we need to deploy the project.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+requiredFiles <- c('R/model_dev.R', 'model_card/model_card.Rmd')
+allFiles <- list.files(here::here("model_deployment", 'model_dev'), recursive = TRUE)
+if(!all(requiredFiles %in% allFiles)){
+  errMessage <- paste0('Missing files: ', 
+                       paste0(requiredFiles[!requiredFiles %in% allFiles], collapse = ', '),
+                       collapse = '')
+  fatal(logger, errMessage)
+  stop(errMessage)
+}
+info(logger, 'All files found')
+```
+
+# Install dependencies
+We skip this as in this toy example we have everything in the same repo and our renv library is already populated. In real life, you would do a `renv::restore()` here based on the `renv.lock` provided in the dev's repo.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'restoring renv')
+tryCatch({
+  #renv::restore()
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+info(logger, 'renv restored succesfully')
+```
+
+# Build model
+
+Now we can rebuild the model. We will be doing some re-training in the working environment, to check if the modeller process is reporducible. you will not always want to do this, depoending on how long it takes to train your model. If your model is too complex, you will want to skip this and simply use a rds file with the model object.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'training model')
+tryCatch({
+  source(here::here('model_deployment', 'model_dev', 'R', 'model_dev.R'))
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+info(logger, 'model trained')
+```
+
+# Deploy model as vetiver API
+
+## Create vetiver object
+```{r message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'create vetiver object')
+tryCatch({
+   vetiver_flights_fit <- vetiver::vetiver_model(
+     model = flights_fit, model_name = params$model_name,
+     description = 'Flights model',
+     metadata = list(developer = 'Name.Surname',
+                     team = 'Team.Name',
+                     contact = 'name.surname@company.com'))
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+info(logger, 'vetiver model object created')
+```
+
+## Pin the vetiver model
+```{r message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'pin the vetiver model object')
+tryCatch({
+  params$board %>% 
+    vetiver::vetiver_pin_write(vetiver_model = vetiver_flights_fit)
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+info(logger, 'vetiver model object added to pins')
+```
+
+## Deploy the plumber API
+
+In this toy example we are alredy running the API. In a real world application you will want to do one of the following:
+
+* Run `vetiver::vetiver_write_plumber` and `vetiver::vetiver_deploy_rsconnect()` to create and deploy a plumber REST API
+* Develop your custom plumber file, then trigger its deployment from this step. 
+
+I would recommend the second option, as the default vetiver plumber does not have some critical features, like logging or filters.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'deploying model as vetiver API')
+tryCatch({
+  #in this toy example we will use vetiver::vetiver_write_plumber(). In real life,
+  # you probably want to eploy to rsconnect with vetiver::vetiver_deploy_rsconnect()
+  #vetiver::vetiver_write_plumber(board, 'flights_fit')
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+info(logger, 'model deployed as an API')
+```
+
+# Testing
+## Smoke test
+Here we test the endpoints ping and predict_flights. No deep testing yet. We only want to see if we get a simple status code 200 or 500 back.
+```{r message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'starting smoke tests')
+test_data <- board %>% pins::pin_read(params$test_data_name)
+rootUrl <- "http://127.0.0.1:4023/"
+requestBody_OK <- jsonlite::toJSON(test_data[1,])
+requestBody_WRONG <- jsonlite::toJSON(mtcars[1,])
+
+info(logger, 'test ping endpoint')
+tryCatch({
+  r <- httr::GET(paste0(rootUrl, "ping"))$status_code
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+
+if(r != 200){
+  errMessage <- 'ping did not return 200'
+  fatal(logger, errMessage)
+  stop(errMessage)
+}
+info(logger, 'ping endpoint tested succesfully')
+
+tryCatch({
+  r <- httr::POST(paste0(rootUrl, "predict_flights"),
+                body = requestBody_OK,
+                encode = "json")$status_code
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+
+if(r != 200){
+  errMessage <- 'predict did not return 200'
+  fatal(logger, errMessage)
+  stop(errMessage)
+}
+info(logger, 'valid request tested succesfully')
+
+tryCatch({
+  r <- httr::POST(paste0(rootUrl, "predict_flights"),
+                body = requestBody_WRONG,
+                encode = "json")$status_code
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+
+
+if(r != 500){
+  errMessage <- 'predict did not return 500'
+  fatal(logger, errMessage)
+  stop(errMessage)
+}
+info(logger, 'invalid request tested succesfully')
+
+info(logger, 'all smoke tests succesfull')
+```
+
+## Test for accuracy
+
+The business needs accuracy >=80%. We use the test dataset to test this requirement.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'test accuracy')
+requestBody <- jsonlite::toJSON(test_data)
+
+tryCatch({
+  preds <- httr::POST(paste0(rootUrl, "predict_flights"),
+                      body = requestBody,
+                      encode = "json")
+  
+  preds <- httr::content(preds)
+  preds <- t(as.data.frame(preds))
+  
+  final_df <- data.frame(preds = as.factor(preds[,1]),
+                         truths = as.factor(test_data$arr_delay))
+
+  model_accuracy <- final_df %>%  yardstick::accuracy(preds, truths)
+}, error = function(errMessage){
+  fatal(logger, errMessage)
+  stop(errMessage)
+})
+
+if(model_accuracy$.estimate[1] < params$minAcceptableAccuracy){
+  fatal(logger, 'Insufficient accuracy')
+  stop('Insufficient accuracy')
+}
+
+info(logger, 'accuracy tested succesfully')
+
+```
+
+# Drift
+Another thing we might want to do is to check for data drift in the training dataset versus a test dataset. We will do this using the Kolmogorov-Smirnov test.
+
+From the modelling point of view, this is not the best way to test for this, but I wanted to give a feeling to what it means to add more tests to the deployment pipeline.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+info(logger, 'starting Kolmogorov-Smirnov test')
+columnsToTest <- c("origin", "dest", "air_time", "distance", "carrier")
+train_data <- board %>% pins::pin_read(params$train_data_name)
+
+convertToInteger <- function(vec){
+  if(is.factor(vec) || is.character(vec)){
+    vec <- as.character(vec)
+    seqNames <- unique(vec)
+    for(i in seq_along(seqNames)){
+      vec[vec == seqNames[i]] <- i
+    }
+  }
+  vec <- as.integer(vec)
+  return(vec)
+}
+
+for(thisCol in columnsToTest){
+  dist1 <- convertToInteger(test_data[[thisCol]])
+  dist2 <- convertToInteger(train_data[[thisCol]])
+  if (ks.test(dist1, dist2)$p.value >= 0.05){
+    error(logger, paste0('column ', thisCol, ' did not pass the Kolmogorov-Smirnov test'))
+  }
+}
+info(logger, 'ended Kolmogorov-Smirnov test')
+```
+
+# Add to the logs metadata on the deployed versions
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+for(i in c('flights_fit', 'train_data', 'test_data')){
+  v <- board %>% pins::pin_versions(i)
+  v <- v$version[nrow(v)]
+  info(logger, paste0(i, ' version: ', v))
+}
+info(logger, 'deployment finished')
+```
