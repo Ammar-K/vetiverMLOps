@@ -11,22 +11,28 @@ To run everything locally, without any real deployment:
 
 **Set up**
 
+The bash script should take up to 5min, depending on your machine.
+
 * `renv::restore()`
 * From the Terminal execute `bash ./auxScripts/startAPI.bash` (Mac OS)
 
 **Build the model**
 
+This will take 2 to 3min.
+
 * `source(here::here('model_dev', 'R', 'model_dev.R'))`
 
 **Deploy the model**
 
-* Knit the R Markdown `./model_deployment/deployment.Rmd`
+This should take around 5min
 
-### Coming soon
+* Knit the R Markdown `./model_deployment/deployment.Rmd`
 
 **Create some log files**
 
-* Source the file `./auxScripts/prepare_logs_for_monitoring.R`
+This step will take around 10min.
+
+* `source(here::here('auxScripts', 'prepare_logs_for_monitoring.R'))`
 
 **Pre-process the logs**
 
@@ -34,4 +40,4 @@ To run everything locally, without any real deployment:
 
 **Start the monitoring app**
 
-* Start the app in `./model_monitoring/app.R`
+* Start the app: `shiny::runApp(here::here('model_monitoring'))`

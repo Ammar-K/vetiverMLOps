@@ -1,0 +1,49 @@
+---
+title: "Monitoring data prepapration"
+author: "Adrian Joseph"
+date: "`r Sys.Date()`"
+output: html_document
+---
+This markdown can be deployed in rsconnect as a scheduled job.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pins)
+library(stringr)
+library(here)
+library(tidyverse)
+```
+
+
+```{r, include=FALSE, warning=FALSE, message=FALSE}
+board <- pins::board_local()
+# get logs of calls
+pinLogData <- function(logType, board){
+  allLogFiles <- list.files(here::here('logs', logType))
+  allLogData <- list()
+  for(i in seq_along(allLogFiles)){
+    readF <- read_file(here::here('logs', logType, allLogFiles[i]))
+    # parse
+    readF <- unlist(stringr::str_split(readF,
+                                       'INFO \\[[0-9]*-[0-9]*-[0-9]* [0-9]*:[0-9]*:[0-9]*\\] \\[[0-9]*\\] '))
+    readF <- readF[nchar(readF)>0]
+    readF <- lapply(readF, function(d){jsonlite::fromJSON(d)})
+    readF <- bind_rows(readF)
+    readF$dateIs <- as.Date(stringr::str_replace(allLogFiles[i], '.log', ''))
+
+    allLogData[[i]] <- readF
+  }
+  allLogData <- bind_rows(allLogData)
+
+  board %>% pins::pin_write(allLogData, logType)
+  return(invisible(NULL))
+}
+
+pinLogData('requests', board)
+pinLogData('responses', board)
+pinLogData('performance', board)
+
+
+
+```
+
